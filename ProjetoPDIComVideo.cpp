@@ -10,29 +10,26 @@
 using namespace std;
 using namespace cv;
 
-int i = 0, g=0;
 Size frameSize(1080,1080);
 vector<Mat> images;
-vector<Mat> imgBorrada;
-vector<Mat> vetorFinal;
-
-void detectSmile(Mat& img);
-void limparLista();
-void adicionarVetorFinal(Mat& img);
-void efeito(Mat& img);
-void mostrarSalvarResult();
+Mat tela_preta;
+VideoWriter out("final/sorrisos.avi",CV_FOURCC('P','I','M','1'), 25, frameSize,true);
 
 CascadeClassifier cascadeFace, cascadeMouth;
 
-String cascadeFaceName  = "/home/tayna/Documentos/toopencv/haarcascades/haarcascade_frontalface_alt.xml";
-String cascadeMouthName = "/home/tayna/Documentos/toopencv/haarcascades/haarcascade_smile.xml";
-//String cascadeMouthName = "haarcascades/haarcascade_mcs_mouth.xml";
+String cascadeFaceName  = "haarcascades/haarcascade_frontalface_alt.xml";
+String cascadeMouthName = "haarcascades/haarcascade_smile.xml";
+
+void detectSmile(Mat& img);
+void saidaVideo(Mat& img);
+
 
 int main( int argc, const char** argv ){
  
-    String folder = "/home/tayna/Documentos/toopencv/*.jpg";
+    String folder = "imagensSalvas/*.jpg";
     vector<String> filenames;
     Mat image, img;
+    tela_preta = imread("tela_preta.jpg");
   
     if( !cascadeFace.load( cascadeFaceName )) {
 	cerr << "ERRO: Nao carregou filtro em cascata facefrontal" << endl;
@@ -57,8 +54,6 @@ int main( int argc, const char** argv ){
 	detectSmile(image);
     }
 
-    mostrarSalvarResult();
- 
   return 0;
 }
 
@@ -66,7 +61,6 @@ int main( int argc, const char** argv ){
 void detectSmile( Mat& img){
   vector<Rect> faces;
   
-  Mat gray;
   cascadeFace.detectMultiScale(img, // imagem para deteccao
 				   faces, // vetor com os retangulos encontrados
 				   1.1, // escala de multiresolucao
@@ -91,169 +85,55 @@ void detectSmile( Mat& img){
 	imgROI = img(mouthROI);
 	
 	cascadeMouth.detectMultiScale(
-					imgROI,
-					nestedObjects,
-					1.1,
-					10,
-					0 | CV_HAAR_FIND_BIGGEST_OBJECT,
-					Size(30, 30) );
+					imgROI, // imagem para detectção
+					nestedObjects, // vetor com os retangulos encontrados da região da boca
+					1.1, // escala de multiresolucao
+					10,// numero de vizinhos que cada candidato a retangulo
+				           // devera contemplar. evita multiplas deteccoes parecidas
+				           // na mesma regiao
+					0 | CV_HAAR_FIND_BIGGEST_OBJECT, // parametros (normalmente nao usados)
+					Size(30, 30) );// mínimo tamanho para deteccao de um objeto
 
 
 	for( vector<Rect>::const_iterator nr = nestedObjects.begin(); nr != nestedObjects.end(); nr++ ){
-		//Desenha um retângulo marcando a região da boca		
-		rectangle(img,  
-				Point(r->x + nr->x, r->y + (r->height/1.5) + nr->y  ),  
-				Point(r->x + nr->x + nr->width, r->y + (r->height/1.5) + nr->y + nr->height),  
-				CV_RGB(255, 0, 255), 1, 8, 0);
 		
-		//Cada imagem que é detectado sorriso é adicionada ao vetor de imagens 'images'		
-		images.push_back(img);
-		
-		//Trecho de código responsável por salvar as imagens que possuem sorriso na pasta 'aqui'
-		//As imagens são salvas como 'image1.jpg' - 'image2.jpg' ... e assim por diante
-		string s;
-		s="/home/tayna/Documentos/toopencv/resultado/" + std::to_string(i) + ".jpg";
-		imwrite(s.c_str(), img);
-		i++;
-		
-		// É aplicado o efeito de borramento a cada imagem
-		efeito(img);
-		
-		//O vetor que armazena o borramento de cada imagem é esvaziado para que ele receba
-		// as imagens de borramento de um nova imagem
-		limparLista();
+		//Para cada imagem é aplicado o efeito e o resultado é 'jogado'
+		//diretamente no video
+		saidaVideo(img);
+			
 	}
   }
 
 }
 
+void saidaVideo(Mat &image){
+        Mat result; // matriz auxiliar
+	float alpha; // variavel que será utilizada no efeito
 
-//O efeito de borramento consiste em aplicar 6 diferentes intensidades de borramento
-//em cada imagem recebida pela função
-void efeito(Mat& img){
+	//As imagens são redimensionadas para que tenham
+	// o mesmo tamanho quando forem adicionadas.
+	// O redimensionamento é feito para o tamanho do frame do video.
+	resize(tela_preta,tela_preta, frameSize);
+        resize(image, image, frameSize);
 
-	Mat imgBor;// matriz que irá receber a imagem borrada
-	int j,k;
-
-	for(j=0;j<6; j++){
-
-		//Função que aplica borramento na imagem 'img' e salva resultado em 'imgBor'
-		// O último parâmetro especifica a intensidade do borramento.
-		// Quanto maior o valor, maior o borramento.
-		GaussianBlur(img, imgBor, Size(0, 0), j+1);
-		
-		//Cada imagem resultante do borramento é adicionada ao vetor 'imgBorrada'		
-		imgBorrada.push_back(imgBor);
-
-		//Trecho de código responsável por salvar as imagens que possuem sorriso na pasta 'borradas'
-		//As imagens são salvas como 'image1.jpg' - 'image2.jpg' ... e assim por diante
-		string s;
-		s="/home/tayna/Documentos/toopencv/borradas/image"+to_string(g)+".jpg";
-		imwrite(s.c_str(), imgBorrada[j]);
-		g++;
+	// loop que fará a transição da imagem da tela_preta
+	// até a imagem 'image'
+	for(alpha=0; alpha<=1; alpha+=0.02){
+		result = image*alpha + tela_preta*(1-alpha);
+		//add(foreground, background, ouImage);	
+		out.write(result);
 	}
 
-	//Trecho de código para teste	
-	/*for(k =0; k< size; k++){
-		string s;
-		s="teste/image"+to_string(k)+".jpg";
-		imwrite(s.c_str(), imgBorrada[k]);
-		waitKey(0);
-	}*/
+	// A imagem 'image' será mostrada durante 1segundo
+	for(int i =0; i<25;i++){
+		out.write(image);
+	}
 
-	adicionarVetorFinal(img);
-}
-
-//Função que limpa o vetor 'imgInicialBorrada'
-void limparLista(){
-
-	int j;
-        int size = imgBorrada.size() ;
-	for(j=0 ; j< size; j++){
-
-		imgBorrada.pop_back();
+	// loop que fará a transição da imagem 'image'
+	// até a imagem tela_preta
+	for(alpha =1; alpha>=0; alpha-=0.02){
+		result = image*alpha + tela_preta*(1-alpha);	
+		out.write(result);
 	}
 }
-
-//O 'vetorFinal' armazenará todas as imagens que irão compor o efeito de exibição no video
-// O efeito que se deseja gerar é: Serão mostradas imagens com borramento (primeira imagem com pouco borramento 
-//e as próximas com efeito mais forte de borramento) -> imagens sem borramento -> novamente imagem com borramento 
-//(primeira imagem com muito borramento e as próximas com efeito mais leve de borramento).
-void adicionarVetorFinal(Mat& img){
-	int j ;
-        int size = imgBorrada.size();
-
-	//teste	
-	/*for(int j =0; j < size ;j++){
-		string s;
-		s="image"+to_string(j);
-		imshow(s.c_str(), imgInicialBorrada[j]);
-		waitKey(0);
-	}*/
-
-	// São adicionadas ao vetor 'vetorFinal' as imagens com ordem crescente
-	// de intensidade de borramento
-	for(j=size-1; j>=0;j--){
-		vetorFinal.push_back(imgBorrada[j]);
-	}
-
-	//Em sequência, são adicionadas imagens sem borramento ao vetor 'vetorFinal'
-	// São adicionadas várias imagens para dar um efeito de 'maior tempo de visualização'
-	// da imagem normal (sem borramento)
-	for(j=0; j<6;j++){
-		vetorFinal.push_back(img);
-	}
-
-	// Por fim, São adicionadas ao vetor 'vetorFinal' as imagens com ordem decrescente
-	// de intensidade de borramento
-	for(j=0;j<size;j++){
-		vetorFinal.push_back(imgBorrada[j]);
-	}
-
-}
-
-//Salva as imagens contidas no 'vetorFinal' em um diretório
-void mostrarSalvarResult(){
-
-	int size = vetorFinal.size();
-
-	for(int j =0; j < size ;j++){
-
-		//Trecho de código responsável por salvar as imagens que possuem sorriso na pasta 'aqui'
-		//As imagens são salvas como 'image1.jpg' - 'image2.jpg' ... e assim por diante
-		//myImage = imread(vetorFinal[i]);        	
-		cv::resize(vetorFinal[j], vetorFinal[j], frameSize);//all images will be saved the same size
-		string s;
-		s="/home/tayna/Documentos/toopencv/final/image"+to_string(g)+".jpg";
-		imwrite(s.c_str(), vetorFinal[j]);
-		//imshow("imagem", vetorFinal[j]);
-		//waitKey(0);
-	}
- //Write video
-    VideoWriter out
-    ("/home/tayna/Documentos/toopencv/final/sorrisos.avi",CV_FOURCC('P','I','M','1'), 24, frameSize,true);
-  
-
-    //writing images in the video
-
-	String folderdst = "/home/tayna/Documentos/toopencv/final/*.jpg";
-        vector<String> filenamesdst;
- 
-        glob(folderdst, filenamesdst);
-
-
-
-    vector<Mat> img;//vector to store all the images
-     for (size_t i = 0; i < filenamesdst.size(); ++i)
-    { 
-	img.push_back(imread(filenamesdst[i]));
-		
-    }
-    vector<Mat>::iterator it;//iterator to the vector<Mat>
-
-    for (it = img.begin(); it != img.end() ; it++) {
-	out.write((*it));
-    }
-   
-
-}
+    
